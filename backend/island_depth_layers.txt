@@ -1,0 +1,63 @@
+# Island Depth Layers (Top-Down View)
+
+```
+Layer 6 (Peak)     Layer 5           Layer 4           Layer 3
+    .                  .                ..                ....
+   ...                ...              .....            .......
+  .....              ......            ......           ........
+ ......              .......           .......         ........
+.......             ........          ........        .........
+.......             ........          ........        .........
+
+Layer 2 (Beach)    Layer 1 (Shore)    Layer 0 (Water)  Layer -1 (Deep)
+ ........          ...........        ............    ............
+ .........         ............      ..............  .............
+ ..........        .............     .............   .............
+ .........         ............      ..............  .............
+ .........         ............      ..............  .............
+```
+
+# ASCII Representation
+
+```
+        ~~::~:~~~~::
+      :~~~~~~~~~~~~:::~
+    :~~~~~~~~~~~~~~~~~~~~:
+   :~~~~~~~~~~~~~~~~~~~~~~~~:
+  :~~~~~~~~~~~~~~~~~~~~~~~~~~:
+  :~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+ :~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+ :~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+ :~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+ :~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+ :~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+  :~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+  :~~~~~~~~~~~~~~~~~~~~~~~~~~~~:
+   :~~~~~~~~~~~~~~~~~~~~~~~~~~:
+    :~~~~~~~~~~~~~~~~~~~~~~~~:
+      :~~~~~~~~~~~~~~~~~~~~:
+        :~~~~~~~~~~~~~~~:
+          :~~~~~~~~~~~:
+```
+
+# Generation Logic
+
+1. Start with a base shape (circle/ellipse/organic blob)
+2. Create concentric depth layers from center outward
+3. Each layer has different properties:
+   - Deep water: Dark blue, lowest layer
+   - Shallow water: Light blue
+   - Shore/Sand: Yellow/tan
+   - Grass/Land: Green
+   - Hills: Darker green
+   - Peak: Snow or rock (highest)
+4. Apply noise to create organic edges
+5. Place features on specific layers (trees on grass, rocks on shore, etc.)
+
+# Output Format
+
+Each "voxel" now represents a 2D cell with:
+- x, z: position
+- depth: layer index (-1 to 10+)
+- type: water, sand, grass, forest, hill, peak
+- color: hex based on type
