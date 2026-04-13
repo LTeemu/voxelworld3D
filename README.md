@@ -1,6 +1,4 @@
-# 🌍 3D Voxel World - AI-Assisted Sandbox
-
-A real-time multiplayer voxel sandbox with AI assistance.
+# 🌍 3D Voxel World - A real-time multiplayer voxel sandbox with prompt-based worlds
 
 > Note: This is a personal project made with AI assistance. Features are limited and experimental.
 
@@ -15,7 +13,7 @@ A real-time multiplayer voxel sandbox with AI assistance.
 
 ## What's Not Working / Incomplete
 
-- ❌ Everything else (building, mining, inventory, etc)
+- ❌ Everything
 
 ## 🛠️ Tech Stack
 
