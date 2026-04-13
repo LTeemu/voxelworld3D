@@ -5,6 +5,8 @@ import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { useStore } from '../store';
 
+const BLOCK_SIZE = 2;
+
 function Avatar({ player }) {
   const meshRef = useRef();
   const labelRef = useRef();
@@ -89,14 +91,14 @@ export default function AIWorld() {
 
     const mats = {};
     for (const [type, color] of Object.entries(worldMaterials)) {
-      // No fallback – backend must provide all colors
-      mats[type] = new THREE.MeshStandardMaterial({ color });
+      const opts = debugMode ? { transparent: true, opacity: 0.6 } : {};
+      mats[type] = new THREE.MeshStandardMaterial({ color, ...opts });
     }
 
     // Small overrides for special blocks (optional – can be removed)
     const overrides = {
-      water: { transparent: true, opacity: 0.6 },
-      ice: { transparent: true, opacity: 0.85, roughness: 0.2 },
+      water: { transparent: true, opacity: debugMode ? 0.9 : 0.6 },
+      ice: { transparent: true, opacity: debugMode ? 0.9 : 0.85, roughness: 0.2 },
       lava: { emissive: worldMaterials.lava, emissiveIntensity: 2 },
     };
 
@@ -105,7 +107,7 @@ export default function AIWorld() {
     }
 
     return mats;
-  }, [worldMaterials]);
+  }, [worldMaterials, debugMode]);
 
   const boxGeo = useMemo(() => new THREE.BoxGeometry(2, 2, 2), []);
 
@@ -129,7 +131,7 @@ export default function AIWorld() {
       if (!keyMap.has(key)) keyMap.set(key, { ...v, type });
     }
     return Array.from(keyMap.values());
-  }, [visionData]);
+  }, [visionData, debugMode]);
 
   // Count block types (depends on uniqueData)
   const blockCounts = useMemo(() => {
@@ -139,7 +141,7 @@ export default function AIWorld() {
       counts[v.type] = (counts[v.type] || 0) + 1;
     }
     return counts;
-  }, [uniqueData]);
+  }, [uniqueData, debugMode]);
 
   // instanceArgs (depends on materials and blockCounts)
   const instanceArgs = useMemo(() => {
@@ -149,7 +151,7 @@ export default function AIWorld() {
       args[type] = [boxGeo, materials[type], getCount(type)];
     }
     return args;
-  }, [boxGeo, materials, blockCounts]);
+  }, [boxGeo, materials, blockCounts, debugMode]);
 
   const visionDataRef = useRef(null);
   const [playerPos, setPlayerPos] = useState({ x: 0, y: 0, z: 0 });
@@ -167,35 +169,86 @@ export default function AIWorld() {
 
   useFrame((state) => {
     const now = state.clock.getElapsedTime();
-    if (window.playerPos && now - lastUpdate.current > 0.5) { // update every 0.5 seconds
+    if (window.playerPos && now - lastUpdate.current > 0.3) { // update every 0.3 seconds
       setPlayerPos(window.playerPos);
       lastUpdate.current = now;
     }
   });
 
-  // Simple: 15x15 all blocks with nothing above
+  // Find collidable blocks: 2 per x,z - one for jumping onto (closest above player),
+  // one for falling onto (closest below player)
   const topBlocks = useMemo(() => {
     if (!visionData || !Array.isArray(visionData)) return [];
 
     const pos = window.playerPos || { x: 0, y: 0, z: 0 };
     const radius = 7;
-    const blockSet = new Set(visionData.map(b => `${b.pos[0]},${b.pos[1]},${b.pos[2]}`));
+    const colliderRadius = radius - 1;
 
-    // Find all blocks in range with nothing above
-    const candidates = visionData.filter(v => {
-      if (Math.abs(v.pos[0] - pos.x) > radius) return false;
-      if (Math.abs(v.pos[2] - pos.z) > radius) return false;
-      // No block above
-      return !blockSet.has(`${v.pos[0]},${v.pos[1] + 1},${v.pos[2]}`);
-    });
+    // First pass: collect unique block y positions per x,z
+    const blocksByXZ = new Map();
+    for (const b of visionData) {
+      const x = b.pos[0];
+      const z = b.pos[2];
+      if (Math.abs(x - pos.x) > radius || Math.abs(z - pos.z) > radius) continue;
+      if (b.pos[1] > pos.y + 3) continue;
 
-    /*
-    if (debugMode && candidates.length > 0) {
-      console.log(`Player: (${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)}) | First: (${candidates[0].pos[0]},${candidates[0].pos[1]},${candidates[0].pos[2]}) type=${candidates[0].type} | Count: ${candidates.length}`);
+      const key = `${x},${z}`;
+      if (!blocksByXZ.has(key)) blocksByXZ.set(key, new Set());
+      blocksByXZ.get(key).add(b.pos[1]);
     }
-    */
 
-    return candidates;
+    // Find max y in entire scan range (to exclude highest blocks)
+    const maxYInRange = Math.max(...Array.from(blocksByXZ).flatMap(([k, ys]) => Array.from(ys)));
+
+    // Second pass: find 2 colliders per x,z
+    const results = [];
+    for (const [key, ySet] of blocksByXZ) {
+      const [x, z] = key.split(',').map(Number);
+      // Skip outer edge - can't know about blocks above outside scan range
+      if (Math.abs(x - pos.x) >= colliderRadius - 1 || Math.abs(z - pos.z) >= colliderRadius - 1) continue;
+
+      const sortedY = Array.from(ySet).sort((a, b) => b - a); // descending
+
+      // Skip if not enough blocks to check (at least 2 needed to know if highest has block above)
+      if (sortedY.length < 2) continue;
+
+      const playerFeetY = pos.y - 1; // approximate player feet position
+
+      // For jump: block above player feet with no block immediately above, and not the highest in scan range
+      const jumpCandidates = sortedY.slice(0, -1).filter(y => {
+        if (y <= playerFeetY) return false;
+        if (!sortedY.includes(y + BLOCK_SIZE)) return true;
+        return false;
+      }).filter(y => y < maxYInRange); // Exclude blocks at absolute max Y in scan range
+      const fallCandidates = sortedY.filter(y => {
+        if (y > playerFeetY) return false;
+        if (!sortedY.includes(y + BLOCK_SIZE)) return true;
+        return false;
+      });
+
+      let jumpY = null, fallY = null;
+
+      // Jump: closest candidate above player feet
+      for (const y of jumpCandidates) {
+        if (y > playerFeetY && (jumpY === null || y < jumpY)) jumpY = y;
+      }
+
+      // Fall: closest block at or below player feet
+      for (const y of fallCandidates) {
+        if (fallY === null || y > fallY) fallY = y;
+      }
+
+      if (jumpY !== null) {
+        const block = visionData.find(b => b.pos[0] === x && b.pos[2] === z && b.pos[1] === jumpY);
+        if (block) results.push({ ...block, colliderType: 'jump' });
+      }
+      if (fallY !== null) {
+        const block = visionData.find(b => b.pos[0] === x && b.pos[2] === z && b.pos[1] === fallY);
+        if (block) results.push({ ...block, colliderType: 'fall' });
+      }
+    }
+
+    return results;
   }, [visionData, playerPos, debugMode]);
 
   // Pre-compute collider positions correctly using array variables
@@ -257,7 +310,7 @@ export default function AIWorld() {
 
       mesh.instanceMatrix.needsUpdate = true;
     });
-  }, [uniqueData]);
+  }, [uniqueData, debugMode]);
 
   if (!visionData) return null;
 
@@ -283,7 +336,7 @@ export default function AIWorld() {
 
       {Object.keys(meshRefs).map(type => (
         <instancedMesh
-          key={type}
+          key={`${type}-${debugMode}`}
           ref={meshRefs[type]}
           args={instanceArgs[type] || [boxGeo, materials.stone, 100]}
           frustumCulled={false}
@@ -296,19 +349,21 @@ export default function AIWorld() {
             <CuboidCollider args={[250, 2, 250]} position={[0, -2, 0]} />
           </RigidBody>
 
-          {/* Block colliders */}
+          {/* Block colliders - jump (blue) and fall (red) */}
           {topBlocks.map((v, i) => {
-            const px = v.pos[0];
-            const py = v.pos[1] + 1.9;
+const px = v.pos[0];
             const pz = v.pos[2];
-            const key = `col-${px}-${v.pos[1]}-${pz}-${i}`;
+            const py = v.pos[1] + 1.9 + 0.01; // block bottom + full block height (2) - collider half-height (0.1) + tiny offset
+            const key = `col-${px}-${v.pos[1]}-${pz}`;
+            const isJump = v.colliderType === 'jump';
+            const color = isJump ? 'blue' : 'red';
             return (
               <RigidBody key={key} type="fixed" position={[px, py, pz]}>
                 <CuboidCollider args={[1, 0.1, 1]} />
                 {debugMode && (
-                  <mesh position={[0, 0.1, 0]}>
-                    <boxGeometry args={[1.8, 0.1, 1.8]} />
-                    <meshBasicMaterial color="red" transparent opacity={0.6} />
+                  <mesh position={[0, 0, 0]}>
+                    <boxGeometry args={[1.8, 0.2, 1.8]} />
+                    <meshBasicMaterial color={color} transparent opacity={0.9} />
                   </mesh>
                 )}
               </RigidBody>

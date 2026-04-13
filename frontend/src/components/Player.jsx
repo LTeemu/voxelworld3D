@@ -9,7 +9,7 @@ import { socket } from '../socket';
 const SPEED = 8;
 const JUMP_FORCE = 10;
 const FALL_DEATH_Y = -10;
-const FLY_SPEED = 15;
+const FLY_SPEED = 40;
 
 export default function Player() {
   const rigidBody = useRef();
@@ -84,8 +84,15 @@ export default function Player() {
 
     const currentPos = rigidBody.current.translation();
 
+    // Switch between dynamic and kinematic based on noclip mode
+    if (noclip && rigidBody.current.bodyType() !== 2) {
+      rigidBody.current.setBodyType(2); // kinematicPosition
+    } else if (!noclip && rigidBody.current.bodyType() !== 0) {
+      rigidBody.current.setBodyType(0); // dynamic
+    }
+
     // Death / fall out of world
-    if (currentPos.y < FALL_DEATH_Y) {
+    if (!noclip && currentPos.y < FALL_DEATH_Y) {
       rigidBody.current.setTranslation({ x: 0, y: 5, z: 0 }, true);
       rigidBody.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
       return;
@@ -109,7 +116,6 @@ export default function Player() {
     }
 
     const { forward, backward, left, right, jump } = get();
-    const velocity = rigidBody.current.linvel();
 
     const camRight = new THREE.Vector3();
     camRight.crossVectors(camForward, new THREE.Vector3(0, 1, 0)).normalize();
@@ -120,7 +126,7 @@ export default function Player() {
     let direction = new THREE.Vector3();
     
     if (noclip) {
-      // Fly in camera direction
+      // Fly in camera direction - use kinematic setNextKinematicTranslation
       const flyDir = new THREE.Vector3();
       camera.getWorldDirection(flyDir);
       
@@ -135,9 +141,14 @@ export default function Player() {
       }
       if (direction.lengthSq() > 0) direction.normalize().multiplyScalar(FLY_SPEED);
       
-      rigidBody.current.setLinvel({ x: direction.x, y: direction.y, z: direction.z }, true);
-      rigidBody.current.setGravityScale(0, true);
+      const newPos = {
+        x: currentPos.x + direction.x * 0.016,
+        y: currentPos.y + direction.y * 0.016,
+        z: currentPos.z + direction.z * 0.016
+      };
+      rigidBody.current.setNextKinematicTranslation(newPos);
     } else {
+      const velocity = rigidBody.current.linvel();
       if (moveZ !== 0) direction.addScaledVector(camForward, moveZ);
       if (moveX !== 0) direction.addScaledVector(camRight, moveX);
       if (direction.lengthSq() > 0) direction.normalize().multiplyScalar(SPEED);

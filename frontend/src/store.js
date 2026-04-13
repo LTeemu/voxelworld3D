@@ -22,7 +22,7 @@ export const useStore = create((set, get) => ({
   worldId: 'Lobby',
   activeWorlds: [],
 spawnPosition: null,
-  noclip: false,
+  noclip: true,
   debugMode: true,
   
   setNoclip: (val) => set({ noclip: val }),
