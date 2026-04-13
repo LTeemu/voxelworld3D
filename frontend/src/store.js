@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { socket } from './socket';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 const api = axios.create({
-  baseURL: 'http://localhost:3001/api',
+  baseURL: `${API_URL}/api`,
 });
 
 // Setup interceptor to inject token
@@ -20,8 +22,10 @@ export const useStore = create((set, get) => ({
   otherPlayers: [],
   uiState: 'menu',
   worldId: 'Lobby',
+  worldLoading: false,
+  cachedWorlds: [],
   activeWorlds: [],
-spawnPosition: null,
+  spawnPosition: null,
   noclip: true,
   debugMode: true,
   
@@ -29,6 +33,7 @@ spawnPosition: null,
   toggleNoclip: () => set(state => ({ noclip: !state.noclip })),
   setDebugMode: (val) => set({ debugMode: val }),
   toggleDebugMode: () => set(state => ({ debugMode: !state.debugMode })),
+  setWorldLoading: (val) => set({ worldLoading: val }),
   
   setToken: (token) => {
     localStorage.setItem('vw_token', token);
@@ -86,6 +91,27 @@ spawnPosition: null,
     } catch (err) {
       console.error('Failed to fetch active worlds:', err);
     }
+  },
+
+  fetchCachedWorlds: async () => {
+    try {
+      const res = await api.get('/cached-worlds');
+      set({ cachedWorlds: res.data });
+    } catch (err) {
+      console.error('Failed to fetch cached worlds:', err);
+    }
+  },
+
+  deleteCachedWorld: async (worldId) => {
+    await api.delete(`/cached-worlds/${worldId}`);
+    set(state => ({
+      cachedWorlds: state.cachedWorlds.filter(w => w.world_id !== worldId)
+    }));
+  },
+
+  clearCachedWorlds: async () => {
+    await api.delete('/cached-worlds');
+    set({ cachedWorlds: [] });
   },
 
   // Called via socket events

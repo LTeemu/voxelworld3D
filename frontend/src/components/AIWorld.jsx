@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
+import { useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
 import { Billboard, Text } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 
 const BLOCK_SIZE = 2;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function Avatar({ player }) {
   const meshRef = useRef();
@@ -56,9 +57,10 @@ const cyrb53 = (str, seed = 0) => {
 };
 
 export default function AIWorld() {
-  const { worldId, otherPlayers, user, setSpawnPosition: setGlobalSpawn, uiState, debugMode, spawnPosition } = useStore();
+  const { worldId, otherPlayers, user, setSpawnPosition: setGlobalSpawn, uiState, debugMode, spawnPosition, setWorldLoading } = useStore();
   const [visionData, setVisionData] = useState(null);
   const [worldMaterials, setWorldMaterials] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const meshRefs = {
     stone: useRef(), grass: useRef(), lava: useRef(), water: useRef(),
@@ -70,7 +72,9 @@ export default function AIWorld() {
 
   // Fetch world data
   useEffect(() => {
-    const apiUrl = `${window.location.protocol}//${window.location.hostname}:3001/api/world-data/${worldId}`;
+    setLoading(true);
+    setWorldLoading(true);
+    const apiUrl = `${API_URL}/api/world-data/${worldId}`;
 
     fetch(apiUrl)
       .then(r => r.json())
@@ -78,12 +82,15 @@ export default function AIWorld() {
         const voxelArray = data.voxel_data || data.voxels || [];
         setVisionData(voxelArray);
         if (data.spawnPosition) setGlobalSpawn(data.spawnPosition);
-        // Store the material colors
         if (data.materials?.colors) {
           setWorldMaterials(data.materials.colors);
         }
       })
-      .catch(e => console.error("Vision Genesis failed:", e));
+      .catch(e => console.error("Vision Genesis failed:", e))
+      .finally(() => {
+        setLoading(false);
+        setWorldLoading(false);
+      });
   }, [worldId]);
 
   const materials = useMemo(() => {
@@ -251,21 +258,6 @@ export default function AIWorld() {
     return results;
   }, [visionData, playerPos, debugMode]);
 
-  // Pre-compute collider positions correctly using array variables
-  const colliderPositions = React.useMemo(() => {
-    if (!uniqueData || uniqueData.length === 0) return [];
-    const positions = [];
-    for (let i = 0; i < uniqueData.length; i++) {
-      const v = uniqueData[i];
-      const x = v.pos[0];
-      const y = v.pos[1] + 1;
-      const z = v.pos[2];
-      positions.push(x, y, z);
-    }
-    return positions;
-  }, [uniqueData]);
-
-  // Replace the old useEffect with this
   useLayoutEffect(() => {
     if (!uniqueData.length) return;
 

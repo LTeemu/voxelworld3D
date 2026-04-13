@@ -34,6 +34,14 @@ const initializeDatabase = async () => {
       );
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_worlds_seed ON worlds(seed)');
+    
+    // Add expires_at column if it doesn't exist
+    try {
+      await pool.query('ALTER TABLE worlds ADD COLUMN expires_at TIMESTAMP');
+    } catch (e) {
+      // Column may already exist, ignore error
+    }
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_worlds_expires ON worlds(expires_at)');
 
     console.log("Database initialized successfully.");
   } catch (err) {

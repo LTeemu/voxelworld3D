@@ -1,19 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { Sparkles, Users, Globe, Image } from 'lucide-react';
+import { Sparkles, Users, Globe, Image, Trash2, XCircle } from 'lucide-react';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export default function PromptSearch() {
-  const { enterWorld, worldId, activeWorlds, fetchActiveWorlds } = useStore();
+  const { enterWorld, worldId, activeWorlds, fetchActiveWorlds, cachedWorlds, fetchCachedWorlds, deleteCachedWorld, clearCachedWorlds } = useStore();
   const [prompt, setPrompt] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showCached, setShowCached] = useState(false);
 
   // Periodically refresh active worlds
   useEffect(() => {
     fetchActiveWorlds();
-    const interval = setInterval(fetchActiveWorlds, 10000); // every 10s
+    fetchCachedWorlds();
+    const interval = setInterval(() => {
+      fetchActiveWorlds();
+      if (showCached) fetchCachedWorlds();
+    }, 10000);
     return () => clearInterval(interval);
-  }, [fetchActiveWorlds]);
+  }, [fetchActiveWorlds, fetchCachedWorlds, showCached]);
 
   const handlePromptSubmit = (e) => {
     e.preventDefault();
@@ -30,7 +37,7 @@ export default function PromptSearch() {
     
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/world-from-image', {
+      const response = await fetch(`${API_URL}/api/world-from-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -128,6 +135,59 @@ export default function PromptSearch() {
             <div className="empty-msg">No active dimensions. Start one!</div>
           )}
         </div>
+      </div>
+
+      <div className="active-dimensions">
+        <div className="label" onClick={() => { setShowCached(!showCached); if (!showCached) fetchCachedWorlds(); }} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <Globe size={12} />
+          <span>Cached Worlds ({cachedWorlds.length})</span>
+          {cachedWorlds.length > 0 && (
+            <button
+              type="button"
+              className="delete-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('Delete ALL cached worlds?')) {
+                  clearCachedWorlds();
+                }
+              }}
+              title="Clear all cached worlds"
+              style={{ marginLeft: '4px' }}
+            >
+              <XCircle size={12} />
+            </button>
+          )}
+        </div>
+        {showCached && (
+          <div className="tag-cloud">
+            {cachedWorlds.length > 0 ? (
+              cachedWorlds.map((world, i) => (
+                <div 
+                  key={i} 
+                  className={`world-tag ${world.world_id === worldId ? 'active' : ''}`}
+                  onClick={() => enterWorld(world.world_id)}
+                >
+                  <span className="world-name">{world.world_id}</span>
+                  <button
+                    type="button"
+                    className="delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete cached world "${world.world_id}"?`)) {
+                        deleteCachedWorld(world.world_id);
+                      }
+                    }}
+                    title="Delete cached world"
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="empty-msg">No cached worlds</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

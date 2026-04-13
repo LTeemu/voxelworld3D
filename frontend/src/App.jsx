@@ -1,17 +1,15 @@
-import React, { useEffect, useRef } from 'react';
-import * as THREE from 'three';
+import { useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
-import { KeyboardControls, PerspectiveCamera, Stats, Stars } from '@react-three/drei';
+import { KeyboardControls, PerspectiveCamera } from '@react-three/drei';
 import UI from './components/UI';
 import AIWorld from './components/AIWorld';
 import Player from './components/Player';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { socket } from './socket';
 import { useStore } from './store';
 
 function MenuCamera() {
-  const cameraRef = useRef();
-
   useFrame((state) => {
     const time = state.clock.getElapsedTime() * 0.1; // Slow rotation
     const distance = 60;
@@ -77,34 +75,36 @@ export default function App() {
   return (
     <>
       <UI />
-      <KeyboardControls
-        map={[
-          { name: 'forward', keys: ['ArrowUp', 'KeyW'] },
-          { name: 'backward', keys: ['ArrowDown', 'KeyS'] },
-          { name: 'left', keys: ['ArrowLeft', 'KeyA'] },
-          { name: 'right', keys: ['ArrowRight', 'KeyD'] },
-          { name: 'jump', keys: ['Space'] },
-        ]}
-      >
-        <Canvas 
-          gl={{ 
-            powerPreference: 'low-power',
-            antialias: false,
-            failIfMajorPerformanceCaveat: false,
-          }} 
-          dpr={[1, 1]}
-          camera={{ fov: 75, near: 0.1, far: 2000, position: [0, 10, 0] }} 
+      <ErrorBoundary>
+        <KeyboardControls
+          map={[
+            { name: 'forward', keys: ['ArrowUp', 'KeyW'] },
+            { name: 'backward', keys: ['ArrowDown', 'KeyS'] },
+            { name: 'left', keys: ['ArrowLeft', 'KeyA'] },
+            { name: 'right', keys: ['ArrowRight', 'KeyD'] },
+            { name: 'jump', keys: ['Space'] },
+          ]}
         >
-          <color attach="background" args={['#87CEEB']} />
-          
-          {uiState !== 'game' && <MenuCamera />}
+          <Canvas 
+            gl={{ 
+              powerPreference: 'low-power',
+              antialias: false,
+              failIfMajorPerformanceCaveat: false,
+            }} 
+            dpr={[1, 1]}
+            camera={{ fov: 75, near: 0.1, far: 2000, position: [0, 10, 0] }} 
+          >
+            <color attach="background" args={['#87CEEB']} />
+            
+            {uiState !== 'game' && <MenuCamera />}
 
-          <Physics gravity={[0, -20, 0]}>
-            <AIWorld />
-            {uiState === 'game' && <Player />}
-          </Physics>
-        </Canvas>
-      </KeyboardControls>
+            <Physics gravity={[0, -20, 0]}>
+              <AIWorld />
+              {uiState === 'game' && <Player />}
+            </Physics>
+          </Canvas>
+        </KeyboardControls>
+      </ErrorBoundary>
     </>
   );
 }

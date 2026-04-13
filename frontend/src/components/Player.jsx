@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { PointerLockControls, useKeyboardControls } from '@react-three/drei';
 import { RigidBody, useRapier, CapsuleCollider } from '@react-three/rapier';
@@ -13,9 +13,9 @@ const FLY_SPEED = 40;
 
 export default function Player() {
   const rigidBody = useRef();
-  const { world, rapier } = useRapier();
+  const { rapier, world: rapierWorld } = useRapier();
   const [, get] = useKeyboardControls();
-  const { user, worldId, spawnPosition, noclip, toggleNoclip } = useStore();
+  const { user, worldId, spawnPosition, noclip } = useStore();
   const lastEmitTime = useRef(0);
   const lastJumpRef = useRef(0);
 
@@ -30,7 +30,7 @@ export default function Player() {
   const handleUnlock = () => {
     isLockedRef.current = false;
     setLockCooldown(true);
-    setTimeout(() => setLockCooldown(false), 500);
+    setTimeout(() => setLockCooldown(false), 1000);
   };
 
   useEffect(() => {
@@ -156,7 +156,7 @@ export default function Player() {
       // Grounded check via raycast
       const rayOrigin = { x: currentPos.x, y: currentPos.y - 1.05, z: currentPos.z };
       const ray = new rapier.Ray(rayOrigin, { x: 0, y: -1, z: 0 });
-      const hit = world.castRay(ray, 0.2, true);
+      const hit = rapierWorld.castRay(ray, 0.2, true);
       const isGrounded = (hit && hit.toi < 0.2) || Math.abs(velocity.y) < 0.05;
 
       if (jump && isGrounded && now - lastJumpRef.current > 300) {
@@ -174,9 +174,18 @@ export default function Player() {
 
   if (!user) return null;
 
+  // Only render PointerLockControls after user interaction to avoid immediate lock failures
+  const [showControls, setShowControls] = useState(false);
+
+  useEffect(() => {
+    const handleClick = () => setShowControls(true);
+    window.addEventListener('click', handleClick, { once: true });
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
+
   return (
     <>
-      {!lockCooldown && <PointerLockControls 
+      {showControls && !lockCooldown && <PointerLockControls 
           ref={controlsRef} 
           onUnlock={handleUnlock}
           onLock={() => { isLockedRef.current = true; }}

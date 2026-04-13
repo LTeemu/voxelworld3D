@@ -8,8 +8,29 @@ require('dotenv').config();
 
 const { pool, initializeDatabase } = require('./db');
 const { generateWorld, generateWorldFromImage, findSpawnPosition } = require('./worldGenerator');
-const path = require('path');
-const fs = require('fs');
+
+// Input validation helpers
+const isValidUsername = (username) => {
+  return typeof username === 'string' && username.length >= 3 && username.length <= 30 && /^[a-zA-Z0-9_]+$/.test(username);
+};
+
+const isValidPassword = (password) => {
+  return typeof password === 'string' && password.length >= 4;
+};
+
+const isValidWorldId = (worldId) => {
+  return typeof worldId === 'string' && worldId.length > 0 && worldId.length <= 100 && /^[\w\s\-]+$/.test(worldId);
+};
+
+const isValidImageUrl = (url) => {
+  if (typeof url !== 'string' || url.length > 2000) return false;
+  try {
+    const parsed = new URL(url);
+    return ['http:', 'https:'].includes(parsed.protocol) && /\.(png|jpg|jpeg|bmp|gif|tiff?)$/i.test(url);
+  } catch {
+    return false;
+  }
+};
 
 const app = express();
 const server = http.createServer(app);
@@ -49,7 +70,22 @@ const colors = ['#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3'
 // AUTH ROUTES
 app.post('/api/register', async (req, res) => {
   const { username, password, world_id } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Missing username or password' });
+  }
+  
+  if (!isValidUsername(username)) {
+    return res.status(400).json({ error: 'Username must be 3-30 characters, alphanumeric + underscores only' });
+  }
+  
+  if (!isValidPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  }
+  
+  if (world_id && !isValidWorldId(world_id)) {
+    return res.status(400).json({ error: 'Invalid world ID format' });
+  }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -75,6 +111,15 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   const { username, password, world_id } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Missing username or password' });
+  }
+  
+  if (world_id && !isValidWorldId(world_id)) {
+    return res.status(400).json({ error: 'Invalid world ID format' });
+  }
+  
   try {
     const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
@@ -141,6 +186,41 @@ app.get('/api/worlds', async (req, res) => {
   try {
     const result = await pool.query('SELECT world_id, COUNT(*) as count FROM users GROUP BY world_id');
     res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET cached worlds
+app.get('/api/cached-worlds', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT world_id, seed, created_at, expires_at FROM worlds ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE all cached worlds (must be before parameterized route)
+app.delete('/api/cached-worlds', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM worlds');
+    res.json({ message: 'All cached worlds deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE a cached world
+app.delete('/api/cached-worlds/:worldId', async (req, res) => {
+  const { worldId } = req.params;
+  console.log('[DELETE] Cached world:', worldId);
+  try {
+    await pool.query('DELETE FROM worlds WHERE world_id = $1', [worldId]);
+    res.json({ message: 'World deleted' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -260,6 +340,10 @@ const parseJsonField = (field) => {
 app.get('/api/world-data/:worldId', async (req, res) => {
   const { worldId } = req.params;
 
+  if (!isValidWorldId(worldId)) {
+    return res.status(400).json({ error: 'Invalid world ID format' });
+  }
+
   // Set a timeout to prevent hanging requests
   const timeout = setTimeout(() => {
     console.error(`[World] Request timeout for: ${worldId}`);
@@ -361,6 +445,14 @@ app.post('/api/world-from-image', async (req, res) => {
     return res.status(400).json({ error: 'Missing worldId or imageUrl' });
   }
 
+  if (!isValidWorldId(worldId)) {
+    return res.status(400).json({ error: 'Invalid world ID format' });
+  }
+
+  if (!isValidImageUrl(imageUrl)) {
+    return res.status(400).json({ error: 'Invalid image URL. Must be HTTP/HTTPS and end in .png, .jpg, .jpeg, .bmp, .gif, or .tiff' });
+  }
+
   // Set a timeout to prevent hanging requests
   const timeout = setTimeout(() => {
     console.error(`[World] Image request timeout for: ${worldId}`);
@@ -429,6 +521,21 @@ app.post('/api/world-from-image', async (req, res) => {
     }
   }
 });
+
+// Clean up expired world caches
+const cleanupExpiredWorlds = async () => {
+  try {
+    const result = await pool.query('DELETE FROM worlds WHERE expires_at < NOW() RETURNING world_id');
+    if (result.rowCount > 0) {
+      console.log(`[Cache] Cleaned up ${result.rowCount} expired worlds`);
+    }
+  } catch (err) {
+    console.error('[Cache] Error cleaning up expired worlds:', err);
+  }
+};
+
+// Run cleanup every 5 minutes
+setInterval(cleanupExpiredWorlds, 5 * 60 * 1000);
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useStore } from '../store';
 import PromptSearch from './PromptSearch';
 
 export default function UI() {
-  const { uiState, login, register, logout, spawnPosition, noclip, toggleNoclip, debugMode, toggleDebugMode } = useStore();
+  const { uiState, login, register, logout, spawnPosition, noclip, toggleNoclip, debugMode, toggleDebugMode, worldLoading } = useStore();
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +31,21 @@ export default function UI() {
     return (
       <div className="ui-layer" style={{ pointerEvents: 'none' }}>
         <div className="crosshair" />
+        {worldLoading && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(0,0,0,0.7)',
+            padding: '1rem 2rem',
+            borderRadius: '8px',
+            color: '#fff',
+            pointerEvents: 'auto',
+          }}>
+            Loading world...
+          </div>
+        )}
         <div className="hud">
           <div>WASD to move</div>
           <div>Mouse to look</div>
