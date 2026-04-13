@@ -1,22 +1,21 @@
 # 🌍 3D Voxel World - AI-Assisted Sandbox
 
-A real-time multiplayer voxel sandbox with AI-assisted world generation. Originally designed for prompt-based generation, now focusing on core survival gameplay with physics-based building and mining.
+A real-time multiplayer voxel sandbox with AI assistance.
 
 > Note: This is a personal project made with AI assistance. Features are limited and experimental.
 
 ## What It Does
 
-- **Multiplayer voxel world** - Join with friends, see each other move in real-time
-- **Basic building & mining** - Break and place blocks with physics colliders
-- **Instanced rendering** - Optimized rendering for voxel performance
+- **Voxel world generation** - Deterministic worlds from prompt/seed (share prompt to join same world)
+- **Real-time multiplayer** - See other players move in real-time
+- **Player status** - See who's online/offline
+- **Jump and fly** - Basic movement around the world
+- **Surface walking** - Block colliders for standing on surfaces (blue = jump, red = fall)
+- **Debug tools** - Toggle debug mode to see colliders and block rendering
 
 ## What's Not Working / Incomplete
 
-- ❌ Prompt-to-world generation (placeholder only)
-- ❌ Image-to-world upload (placeholder only)
-- ❌ Full physics interactions (colliders limited)
-- ❌ Mining/resource system (basic block breaking only)
-- ❌ Inventory system
+- ❌ Everything else (building, mining, inventory, etc)
 
 ## 🛠️ Tech Stack
 
@@ -45,3 +44,26 @@ A real-time multiplayer voxel sandbox with AI-assisted world generation. Origina
 ### Prerequisites
 - Node.js 18+
 - Docker Desktop (for PostgreSQL)
+
+### Install & Run
+
+```bash
+npm start
+```
+
+This starts Docker (if not running), then launches both backend and frontend concurrently.
+
+### Manual Start (if needed)
+
+```bash
+# Start database
+docker-compose up -d
+
+# Backend
+cd backend && npm run start
+
+# Frontend
+cd frontend && npm run dev
+```
+
+Open http://localhost:5173 in your browser.
