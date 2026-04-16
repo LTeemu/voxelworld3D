@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import PromptSearch from './PromptSearch';
 
@@ -9,6 +9,30 @@ export default function UI() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [playerDir, setPlayerDir] = useState({ x: 0, z: 0 });
+
+  useEffect(() => {
+    if (uiState !== 'game') return;
+    const interval = setInterval(() => {
+      if (window.playerDir) setPlayerDir(window.playerDir);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [uiState]);
+
+  const getDirection = (x, z) => {
+    // Normalize if needed
+    const mag = Math.sqrt(x * x + z * z);
+    if (mag < 0.01) return '?';
+    const nx = x / mag;
+    const nz = z / mag;
+    // atan2 returns angle in radians from -PI to PI
+    // Convert to degrees and shift so 0 = North (negative Z)
+    const angle = Math.atan2(nx, -nz) * (180 / Math.PI);
+    // Convert to 8-direction: N, NE, E, SE, S, SW, W, NW
+    const dir = Math.round(angle / 45);
+    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    return dirs[(dir + 8) % 8];
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -91,6 +115,11 @@ export default function UI() {
             Logout
           </button>
         </div>
+        {debugMode && (
+          <div style={{ position: 'absolute', top: 10, left: 10, color: 'white', fontSize: '14px', fontFamily: 'monospace' }}>
+            Direction: {getDirection(playerDir.x, playerDir.z)} ({playerDir.x.toFixed(2)}, {playerDir.z.toFixed(2)})
+          </div>
+        )}
       </div>
     );
   }

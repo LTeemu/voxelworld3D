@@ -106,6 +106,9 @@ export default function Player() {
     camForward.y = 0;
     camForward.normalize();
 
+    // Store direction for debug display
+    window.playerDir = camForward;
+
     // Emit at ~20hz
     const now = Date.now();
     if (now - lastEmitTime.current > 50) {

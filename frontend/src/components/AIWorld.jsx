@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 
 const BLOCK_SIZE = 2;
+const SCAN_RANGE = 4;
+const SCAN_RATE = 0.2; // Collider scan update rate
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function Avatar({ player }) {
@@ -176,95 +178,137 @@ export default function AIWorld() {
 
   useFrame((state) => {
     const now = state.clock.getElapsedTime();
-    if (window.playerPos && now - lastUpdate.current > 0.3) { // update every 0.3 seconds
+    if (window.playerPos && now - lastUpdate.current > SCAN_RATE) {
       setPlayerPos(window.playerPos);
       lastUpdate.current = now;
     }
   });
 
-  // Find collidable blocks: 2 per x,z - one for jumping onto (closest above player),
-  // one for falling onto (closest below player)
-  // Optimized with spatial lookup Map for O(1) lookups instead of O(n) find
+  // Find collidable blocks: ground (jump/fall) and walls
+  // Single pass optimization: filter blocks by scan range once, use blockLookup for O(1) neighbor checks
   const topBlocks = useMemo(() => {
     if (!visionData || !Array.isArray(visionData)) return [];
 
     const pos = window.playerPos || { x: 0, y: 0, z: 0 };
-    const radius = 7;
-    const colliderRadius = radius - 1;
+    const radius = SCAN_RANGE * 2 + 1; // XZ radius matches debug visual (16x16)
+    const yRange = SCAN_RANGE * 2 + 1; // Use same range for Y consistency
+    const playerFeetY = pos.y - 1;
 
-    // Build spatial lookup: key "x,z,y" -> block
+    // Single pass: build blockLookup AND collect blocks in scan range
     const blockLookup = new Map();
-    for (const b of visionData) {
-      const key = `${b.pos[0]},${b.pos[1]},${b.pos[2]}`;
-      blockLookup.set(key, b);
-    }
-
-    // First pass: collect unique block y positions per x,z
+    const blocksInRange = []; // Only blocks within scan range (avoid re-filtering)
     const blocksByXZ = new Map();
-    for (const b of visionData) {
-      const x = b.pos[0];
-      const z = b.pos[2];
-      if (Math.abs(x - pos.x) > radius || Math.abs(z - pos.z) > radius) continue;
-      if (b.pos[1] > pos.y + 3) continue;
 
-      const key = `${x},${z}`;
-      if (!blocksByXZ.has(key)) blocksByXZ.set(key, new Set());
-      blocksByXZ.get(key).add(b.pos[1]);
+    for (const b of visionData) {
+      const [x, y, z] = b.pos;
+      const key = `${x},${y},${z}`;
+      blockLookup.set(key, b);
+
+      // Filter once - skip blocks outside XZ or Y range
+      if (Math.abs(x - pos.x) >= radius - 1 || Math.abs(z - pos.z) >= radius - 1) continue;
+      if (y >= playerFeetY + yRange || y < playerFeetY - yRange) continue;
+
+      blocksInRange.push(b);
+
+      const xzKey = `${x},${z}`;
+      if (!blocksByXZ.has(xzKey)) blocksByXZ.set(xzKey, new Set());
+      blocksByXZ.get(xzKey).add(y);
     }
 
-    // Find max y in entire scan range (to exclude highest blocks)
-    const maxYInRange = Math.max(...Array.from(blocksByXZ).flatMap(([k, ys]) => Array.from(ys)));
+    // Find max Y in scan range for jump collider exclusion
+    let maxYInRange = -Infinity;
+    for (const ySet of blocksByXZ.values()) {
+      for (const y of ySet) {
+        if (y > maxYInRange) maxYInRange = y;
+      }
+    }
 
-    // Second pass: find 2 colliders per x,z
+    // Process blocks in range: find jump/fall colliders, then walls/floors (single iteration)
     const results = [];
-    for (const [key, ySet] of blocksByXZ) {
-      const [x, z] = key.split(',').map(Number);
-      // Skip outer edge - can't know about blocks above outside scan range
-      if (Math.abs(x - pos.x) >= colliderRadius - 1 || Math.abs(z - pos.z) >= colliderRadius - 1) continue;
+    const wallResults = [];
+    const processedFloors = new Set(); // Track floors to avoid duplicates
 
-      const sortedY = Array.from(ySet).sort((a, b) => b - a); // descending
+    for (const b of blocksInRange) {
+      const [x, y, z] = b.pos;
+      const xzKey = `${x},${z}`;
+      const ySet = blocksByXZ.get(xzKey);
+      if (!ySet) continue;
 
-      // Skip if not enough blocks to check (at least 2 needed to know if highest has block above)
-      if (sortedY.length < 2) continue;
+      const sortedY = Array.from(ySet).sort((a, b) => b - a);
 
-      const playerFeetY = pos.y - 1; // approximate player feet position
+      // Jump: block above player feet with no block immediately above
+      const jumpCandidates = sortedY.slice(0, -1).filter(yc => {
+        if (yc <= playerFeetY) return false;
+        return !ySet.has(yc + BLOCK_SIZE);
+      }).filter(yc => yc < maxYInRange);
 
-      // For jump: block above player feet with no block immediately above, and not the highest in scan range
-      const jumpCandidates = sortedY.slice(0, -1).filter(y => {
-        if (y <= playerFeetY) return false;
-        if (!sortedY.includes(y + BLOCK_SIZE)) return true;
-        return false;
-      }).filter(y => y < maxYInRange); // Exclude blocks at absolute max Y in scan range
-      const fallCandidates = sortedY.filter(y => {
-        if (y > playerFeetY) return false;
-        if (!sortedY.includes(y + BLOCK_SIZE)) return true;
-        return false;
+      // Fall: block at or below player feet with nothing above
+      const fallCandidates = sortedY.filter(yc => {
+        if (yc > playerFeetY) return false;
+        return !ySet.has(yc + BLOCK_SIZE);
       });
 
+      // Find closest jump above and fall below
       let jumpY = null, fallY = null;
-
-      // Jump: closest candidate above player feet
-      for (const y of jumpCandidates) {
-        if (y > playerFeetY && (jumpY === null || y < jumpY)) jumpY = y;
+      for (const yc of jumpCandidates) {
+        if (jumpY === null || yc < jumpY) jumpY = yc;
+      }
+      for (const yc of fallCandidates) {
+        if (fallY === null || yc > fallY) fallY = yc;
       }
 
-      // Fall: closest block at or below player feet
-      for (const y of fallCandidates) {
-        if (fallY === null || y > fallY) fallY = y;
-      }
+      // Add jump/fall colliders
+      if (jumpY !== null) results.push({ ...blockLookup.get(`${x},${jumpY},${z}`), colliderType: 'jump' });
+      if (fallY !== null) results.push({ ...blockLookup.get(`${x},${fallY},${z}`), colliderType: 'fall' });
 
-      // O(1) lookup instead of O(n) find
-      if (jumpY !== null) {
-        const block = blockLookup.get(`${x},${jumpY},${z}`);
-        if (block) results.push({ ...block, colliderType: 'jump' });
-      }
-      if (fallY !== null) {
-        const block = blockLookup.get(`${x},${fallY},${z}`);
-        if (block) results.push({ ...block, colliderType: 'fall' });
+      // Wall detection: check neighbors at same Y level
+      const directions = [
+        { dx: 2, dz: 0, name: 'east' },
+        { dx: -2, dz: 0, name: 'west' },
+        { dx: 0, dz: 2, name: 'north' },
+        { dx: 0, dz: -2, name: 'south' },
+      ];
+
+      const inset = 0.09;
+      for (const { dx, dz, name } of directions) {
+        const nx = x + dx;
+        const nz = z + dz;
+
+        if (Math.abs(nx - pos.x) > radius - 1 || Math.abs(nz - pos.z) > radius - 1) continue;
+
+        // Wall: no neighbor at same Y
+        if (!blockLookup.has(`${nx},${y},${nz}`)) {
+          const wallX = x + dx / 2 + (dx > 0 ? -inset : dx < 0 ? inset : 0);
+          const wallZ = z + dz / 2 + (dz > 0 ? -inset : dz < 0 ? inset : 0);
+          const isNS = name === 'north' || name === 'south';
+          wallResults.push({
+            pos: [wallX, y, wallZ],
+            wallY: y + 1,
+            wallArgs: isNS ? [1, 1, 0.1] : [0.1, 1, 1],
+            wallNS: isNS,
+            colliderType: 'wall',
+          });
+        }
+
+        // Floor: check once per block (not per direction) using Set to dedupe
+        const floorKey = `${x},${z},${y}`;
+        if (!processedFloors.has(floorKey)) {
+          processedFloors.add(floorKey);
+          const belowY = y - BLOCK_SIZE;
+          if (!blockLookup.has(`${x},${belowY},${z}`)) {
+            wallResults.push({
+              pos: [x, belowY, z],
+              wallY: belowY + BLOCK_SIZE + inset,
+              wallArgs: [1, 0.1, 1],
+              wallNS: false,
+              colliderType: 'floor',
+            });
+          }
+        }
       }
     }
 
-    return results;
+    return [...results, ...wallResults];
   }, [visionData, playerPos, debugMode]);
 
   useLayoutEffect(() => {
@@ -323,12 +367,18 @@ export default function AIWorld() {
       <ambientLight intensity={0.8} />
       <directionalLight position={[10, 20, 10]} intensity={1.2} color="#fff5e0" />
 
-      {/* Debug: scan area */}
+      {/* Debug: scan area - 16x16 centered on player */}
       {debugMode && (
-        <mesh position={[playerPos.x, playerPos.y, playerPos.z]}>
-          <boxGeometry args={[12, 12, 12]} />
-          <meshBasicMaterial color="yellow" wireframe transparent opacity={0.3} />
-        </mesh>
+        <group>
+          <mesh position={[playerPos.x, playerPos.y + 1, playerPos.z]}>
+            <boxGeometry args={[SCAN_RANGE*2, SCAN_RANGE*2, SCAN_RANGE*2]} />
+            <meshBasicMaterial color="magenta" wireframe transparent opacity={0.8} />
+          </mesh>
+          <mesh position={[playerPos.x, playerPos.y + 1, playerPos.z]}>
+            <boxGeometry args={[SCAN_RANGE*2, SCAN_RANGE*2, SCAN_RANGE*2]} />
+            <meshBasicMaterial color="magenta" transparent opacity={0.1} />
+          </mesh>
+        </group>
       )}
 
       {otherPlayers.filter(p => !user || p.id !== user.id).map((p) => (
@@ -350,20 +400,26 @@ export default function AIWorld() {
             <CuboidCollider args={[250, 2, 250]} position={[0, -2, 0]} />
           </RigidBody>
 
-          {/* Block colliders - jump (blue) and fall (red) */}
+{/* Block colliders - jump (blue), fall (red), wall/floor (yellow) */}
           {topBlocks.map((v, i) => {
-const px = v.pos[0];
-            const pz = v.pos[2];
-            const py = v.pos[1] + 1.9 + 0.01; // block bottom + full block height (2) - collider half-height (0.1) + tiny offset
-            const key = `col-${px}-${v.pos[1]}-${pz}`;
+            const isWall = v.colliderType === 'wall';
+            const isFloor = v.colliderType === 'floor';
+            const px = isWall || isFloor ? v.pos[0] : v.pos[0];
+            const pz = isWall || isFloor ? v.pos[2] : v.pos[2];
+            const py = isWall ? v.wallY : isFloor ? v.wallY : v.pos[1] + 1.9 + 0.01;
+            // Round ALL positions in key to ensure proper reconciliation
+            const calcPy = isWall ? v.wallY : isFloor ? v.wallY : v.pos[1] + 1.9 + 0.01;
+            const key = `col-${Math.round(px * 10)}-${Math.round(calcPy * 10)}-${Math.round(pz * 10)}-${v.colliderType}-${i}`;
             const isJump = v.colliderType === 'jump';
-            const color = isJump ? 'blue' : 'red';
+            const isFall = v.colliderType === 'fall';
+            const color = isWall || isFloor ? 'yellow' : isJump ? 'blue' : 'red';
+            const args = isWall || isFloor ? v.wallArgs : [1, 0.1, 1];
             return (
               <RigidBody key={key} type="fixed" position={[px, py, pz]}>
-                <CuboidCollider args={[1, 0.1, 1]} />
+                <CuboidCollider args={args} />
                 {debugMode && (
-                  <mesh position={[0, 0, 0]}>
-                    <boxGeometry args={[1.8, 0.2, 1.8]} />
+                  <mesh position={[0, 0, 0]} frustumCulled={false}>
+                    <boxGeometry args={isFloor ? [1.8, 0.2, 1.8] : isWall ? (v.wallNS ? [1.8, 1.8, 0.2] : [0.2, 1.8, 1.8]) : [1.8, 0.2, 1.8]} />
                     <meshBasicMaterial color={color} transparent opacity={0.9} />
                   </mesh>
                 )}
