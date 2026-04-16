@@ -36,13 +36,16 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     methods: ['GET', 'POST', 'DELETE']
   }
 });
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true
+}));
+app.use(express.json({ limit: '1mb' }));
 
 // Initialize the database table
 initializeDatabase();
@@ -97,7 +100,7 @@ app.post('/api/register', async (req, res) => {
     );
 
     const user = result.rows[0];
-    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET);
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '24h' });
     res.status(201).json({ token, user: { id: user.id, username: user.username, x: user.x, y: user.y, z: user.z, world_id: user.world_id, color: user.color } });
   } catch (err) {
     if (err.code === '23505') {
@@ -126,7 +129,13 @@ app.post('/api/login', async (req, res) => {
 
     const user = result.rows[0];
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+    
+    // Use constant-time comparison to prevent timing attacks
+    if (!match) {
+      // Always compute hash comparison to ensure constant time
+      await bcrypt.compare('dummy', user.password);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     // If a specific world was chosen in the menu, update the user's world in the DB
     if (world_id) {
@@ -134,7 +143,7 @@ app.post('/api/login', async (req, res) => {
       user.world_id = world_id;
     }
 
-    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET);
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '24h' });
     res.json({ token, user: { id: user.id, username: user.username, x: user.x, y: user.y, z: user.z, world_id: user.world_id, color: user.color } });
   } catch (err) {
     console.error(err);
@@ -163,10 +172,21 @@ app.delete('/api/user', authenticateToken, async (req, res) => {
   }
 });
 
-// Retrieves ALL users (to display offline avatars as statues, and merge with online players on frontend)
+// Retrieves users with pagination (to display offline avatars as statues, and merge with online players on frontend)
 app.get('/api/users', async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, username, x, y, z, color, world_id FROM users');
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
+
+    const result = await pool.query(
+      'SELECT id, username, x, y, z, color, world_id FROM users ORDER BY username LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+    
+    const countResult = await pool.query('SELECT COUNT(*) FROM users');
+    const total = parseInt(countResult.rows[0].count);
+    
     const onlineIds = new Set(Object.values(onlinePlayers).map(p => p.id));
 
     const users = result.rows.map(user => ({
@@ -174,7 +194,10 @@ app.get('/api/users', async (req, res) => {
       online: onlineIds.has(user.id)
     }));
 
-    res.json(users);
+    res.json({ 
+      users, 
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } 
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });

@@ -184,12 +184,20 @@ export default function AIWorld() {
 
   // Find collidable blocks: 2 per x,z - one for jumping onto (closest above player),
   // one for falling onto (closest below player)
+  // Optimized with spatial lookup Map for O(1) lookups instead of O(n) find
   const topBlocks = useMemo(() => {
     if (!visionData || !Array.isArray(visionData)) return [];
 
     const pos = window.playerPos || { x: 0, y: 0, z: 0 };
     const radius = 7;
     const colliderRadius = radius - 1;
+
+    // Build spatial lookup: key "x,z,y" -> block
+    const blockLookup = new Map();
+    for (const b of visionData) {
+      const key = `${b.pos[0]},${b.pos[1]},${b.pos[2]}`;
+      blockLookup.set(key, b);
+    }
 
     // First pass: collect unique block y positions per x,z
     const blocksByXZ = new Map();
@@ -245,12 +253,13 @@ export default function AIWorld() {
         if (fallY === null || y > fallY) fallY = y;
       }
 
+      // O(1) lookup instead of O(n) find
       if (jumpY !== null) {
-        const block = visionData.find(b => b.pos[0] === x && b.pos[2] === z && b.pos[1] === jumpY);
+        const block = blockLookup.get(`${x},${jumpY},${z}`);
         if (block) results.push({ ...block, colliderType: 'jump' });
       }
       if (fallY !== null) {
-        const block = visionData.find(b => b.pos[0] === x && b.pos[2] === z && b.pos[1] === fallY);
+        const block = blockLookup.get(`${x},${fallY},${z}`);
         if (block) results.push({ ...block, colliderType: 'fall' });
       }
     }

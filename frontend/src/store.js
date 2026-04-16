@@ -74,10 +74,12 @@ export const useStore = create((set, get) => ({
 
   fetchInitialPlayers: async () => {
     const res = await api.get('/users');
+    // Handle both paginated and non-paginated responses for backward compatibility
+    const users = res.data.users || res.data;
     const currentUser = get().user;
     const currentWorld = get().worldId;
     // Filter out ourselves AND only show people in SAME WORLD
-    const others = res.data.filter(u => 
+    const others = users.filter(u => 
       (!currentUser || u.id !== currentUser.id) && 
       (u.world_id === currentWorld)
     );

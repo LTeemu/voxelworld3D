@@ -123,7 +123,7 @@ export default function UI() {
             <input
               type="text"
               placeholder="Username"
-              autoComplete={username}
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
@@ -135,7 +135,7 @@ export default function UI() {
             <input
               type="password"
               placeholder="Password"
-              autoComplete={password}
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

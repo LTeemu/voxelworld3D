@@ -35,12 +35,10 @@ export default function App() {
   const { uiState, isAuthenticated, token, worldId, fetchInitialPlayers, updatePlayer, removePlayer, setPlayerOffline } = useStore();
 
   useEffect(() => {
-    // Initial fetch of statues/offline users
     fetchInitialPlayers();
-  }, [fetchInitialPlayers]);
+  }, []);
 
   useEffect(() => {
-    // Always connect to socket to see live updates even on login screen
     socket.connect();
 
     const onPlayerConnected = (p) => updatePlayer(p);
@@ -60,17 +58,15 @@ export default function App() {
       socket.off('account_deleted', onPlayerDeleted);
       socket.disconnect();
     };
-  }, [updatePlayer, removePlayer, setPlayerOffline]);
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated && token) {
-      // Authenticate the socket connection for game participation
       socket.emit('join_game', { token });
     } else {
-      // Notify the server we are no longer playing (Logout)
       socket.emit('logout');
     }
-  }, [isAuthenticated, token, worldId]);
+  }, [isAuthenticated, token]);
 
   return (
     <>
